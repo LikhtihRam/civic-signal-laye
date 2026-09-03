@@ -69,7 +69,7 @@ def init_db():
                 category_family TEXT,
                 time_window_start TEXT,
                 time_window_end TEXT,
-                status TEXT DEFAULT 'active' CHECK(status IN ('active', 'resolved', 'false_positive')),
+                status TEXT DEFAULT 'active' CHECK(status IN ('active', 'resolved', 'false_positive', 'verified')),
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
