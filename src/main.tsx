@@ -13,6 +13,7 @@ const Clusters = lazy(() => import("./pages/Clusters.tsx"));
 const ClusterDetail = lazy(() => import("./pages/ClusterDetail.tsx"));
 const FileComplaint = lazy(() => import("./pages/FileComplaint.tsx"));
 const MyComplaints = lazy(() => import("./pages/MyComplaints.tsx"));
+const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteLoading() {
@@ -73,6 +74,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/clusters/:id" element={<ClusterDetail />} />
             <Route path="/file-complaint" element={<FileComplaint />} />
             <Route path="/my-complaints" element={<MyComplaints />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

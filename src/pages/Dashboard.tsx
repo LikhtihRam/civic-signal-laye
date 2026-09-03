@@ -113,6 +113,18 @@ export default function Dashboard() {
               >
                 File Complaint
               </Link>
+              <Link
+                to="/my-complaints"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/50 transition-all"
+              >
+                My Complaints
+              </Link>
+              <Link
+                to="/settings"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/50 transition-all"
+              >
+                Settings
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

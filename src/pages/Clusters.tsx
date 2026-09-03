@@ -111,6 +111,12 @@ export default function Clusters() {
               >
                 File Complaint
               </Link>
+              <Link
+                to="/my-complaints"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/50 transition-all"
+              >
+                My Complaints
+              </Link>
             </nav>
           </div>
         </div>

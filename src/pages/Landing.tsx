@@ -73,6 +73,12 @@ export default function Landing() {
               File Complaint
             </Link>
             <Link
+              to="/my-complaints"
+              className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-foreground hover:bg-white/70 transition-all duration-200"
+            >
+              My Complaints
+            </Link>
+            <Link
               to="/dashboard"
               className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all duration-200"
             >
