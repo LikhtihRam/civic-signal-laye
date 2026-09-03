@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -9,14 +9,12 @@ import {
   CheckCircle,
   FileText,
   Bell,
-  BellOff,
   ChevronDown,
   ChevronUp,
   Trash2,
   Settings,
   AlertCircle,
   Loader2,
-  Shield,
   RotateCcw,
 } from "lucide-react";
 import { CATEGORY_LABELS, SEVERITY_COLORS, formatDateTime } from "@/lib/constants";
@@ -24,11 +22,12 @@ import { getGeminiKey } from "@/lib/gemini";
 import {
   getActiveComplaints,
   getClosedComplaints,
-  updateComplaint,
   removeComplaint,
   markNotificationsRead,
   markResolved,
   confirmResolution,
+  snoozeReminder,
+  sendReminders,
   type FiledComplaint,
 } from "@/lib/complaints";
 
@@ -37,35 +36,48 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: str
   processing: { label: "Processing", color: "text-violet-600", bgColor: "bg-violet-500/10 border-violet-500/20", icon: <Loader2 className="w-3 h-3 animate-spin" /> },
   acknowledged: { label: "Acknowledged", color: "text-cyan-600", bgColor: "bg-cyan-500/10 border-cyan-500/20", icon: <CheckCircle className="w-3 h-3" /> },
   in_progress: { label: "In Progress", color: "text-amber-600", bgColor: "bg-amber-500/10 border-amber-500/20", icon: <RotateCcw className="w-3 h-3" /> },
-  resolved: { label: "Resolved — Awaiting Confirmation", color: "text-green-600", bgColor: "bg-green-500/10 border-green-500/20", icon: <CheckCircle className="w-3 h-3" /> },
+  resolved: { label: "Resolved", color: "text-green-600", bgColor: "bg-green-500/10 border-green-500/20", icon: <CheckCircle className="w-3 h-3" /> },
   confirmed_closed: { label: "Closed", color: "text-gray-500", bgColor: "bg-gray-500/10 border-gray-500/20", icon: <CheckCircle className="w-3 h-3" /> },
 };
 
+/* ------------------------------------------------------------------ */
+/*  Complaint Card                                                     */
+/* ------------------------------------------------------------------ */
+
 function ComplaintCard({
   complaint,
-  onDelete,
-  onConfirm,
-  onSimResolve,
+  onAction,
 }: {
   complaint: FiledComplaint;
-  onDelete: (id: string) => void;
-  onConfirm: (id: string) => void;
-  onSimResolve: (id: string) => void;
+  onAction: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const unread = (complaint.notifications || []).filter((n) => !n.read).length;
   const sc = STATUS_CONFIG[complaint.status] || STATUS_CONFIG.submitted;
+  const isResolved = complaint.status === "resolved";
+  const isClosed = complaint.status === "confirmed_closed";
 
   const etaRemaining = complaint.estimated_date
     ? Math.max(0, Math.ceil((new Date(complaint.estimated_date).getTime() - Date.now()) / 86400000))
     : null;
-
   const etaProgress = complaint.estimated_days
     ? Math.min(100, ((complaint.estimated_days - (etaRemaining ?? 0)) / complaint.estimated_days) * 100)
     : 0;
 
+  // How long since resolved (for the nudge tone)
+  const hoursSinceResolved = complaint.resolved_at
+    ? Math.floor((Date.now() - new Date(complaint.resolved_at).getTime()) / 3600000)
+    : 0;
+  const daysSinceResolved = Math.floor(hoursSinceResolved / 24);
+
   return (
-    <div className="glass rounded-2xl overflow-hidden">
+    <div className={`rounded-2xl overflow-hidden transition-all ${
+      isResolved
+        ? "bg-green-500/5 border-2 border-green-500/20 shadow-lg shadow-green-500/5"
+        : isClosed
+          ? "glass opacity-60"
+          : "glass"
+    }`}>
       <button
         onClick={() => {
           setExpanded(!expanded);
@@ -97,10 +109,13 @@ function ComplaintCard({
               <span className={`px-2 py-0.5 rounded text-xs font-medium border ${sc.bgColor} ${sc.color}`}>
                 {sc.label}
               </span>
-              {unread > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                  {unread}
+              {isResolved && (
+                <span className="px-2 py-0.5 rounded-full bg-green-500 text-white text-[10px] font-bold animate-pulse">
+                  ACTION NEEDED
                 </span>
+              )}
+              {unread > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">{unread}</span>
               )}
             </div>
             <p className={`text-sm text-foreground leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
@@ -112,11 +127,16 @@ function ComplaintCard({
             </div>
           </div>
 
-          {/* ETA badge on collapsed */}
-          {!expanded && complaint.estimated_days && complaint.status !== "confirmed_closed" && (
+          {!expanded && complaint.estimated_days && !isClosed && (
             <div className="shrink-0 text-right">
-              <div className="text-lg font-black text-amber-600">{etaRemaining ?? complaint.estimated_days}</div>
-              <div className="text-[10px] text-muted-foreground">days left</div>
+              {!isResolved ? (
+                <>
+                  <div className="text-lg font-black text-amber-600">{etaRemaining ?? complaint.estimated_days}</div>
+                  <div className="text-[10px] text-muted-foreground">days left</div>
+                </>
+              ) : (
+                <div className="text-lg font-black text-green-600">✓</div>
+              )}
             </div>
           )}
 
@@ -135,8 +155,76 @@ function ComplaintCard({
             className="overflow-hidden"
           >
             <div className="px-5 pb-5 border-t border-white/20">
-              {/* ETA Progress Bar */}
-              {complaint.estimated_days && complaint.status !== "confirmed_closed" && (
+
+              {/* ========== RESOLVED — Confirmation Prompt ========== */}
+              {isResolved && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="mt-4 p-5 rounded-2xl bg-gradient-to-br from-green-500/8 to-emerald-500/8 border-2 border-green-500/20"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-2xl bg-green-500/15 flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-green-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-green-700">
+                        Issue Resolved
+                      </h3>
+                      <p className="text-xs text-green-600/70">
+                        {complaint.department || "Municipal department"} has marked this as fixed
+                        {complaint.resolved_at && (
+                          <> — {daysSinceResolved > 0 ? `${daysSinceResolved}d` : `${hoursSinceResolved}h`} ago</>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {complaint.resolution_notes && (
+                    <p className="text-xs text-green-700/80 mb-3 italic">
+                      "{complaint.resolution_notes}"
+                    </p>
+                  )}
+
+                  <p className="text-sm text-foreground font-medium mb-4">
+                    Has the issue been fixed?
+                  </p>
+
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); confirmResolution(complaint.id); onAction(); }}
+                      className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 px-6 py-3 text-white font-semibold text-sm shadow-lg shadow-green-500/20 hover:shadow-green-500/30 transition-all hover:-translate-y-0.5"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Yes, it's fixed — Close
+                    </button>
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); snoozeReminder(complaint.id, 48); onAction(); }}
+                      className="flex items-center gap-2 glass rounded-xl px-5 py-3 text-sm font-medium text-foreground hover:bg-white/70 transition-all border border-white/30"
+                    >
+                      <Clock className="w-4 h-4" />
+                      Remind me later
+                    </button>
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); snoozeReminder(complaint.id, 168); onAction(); }}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
+                    >
+                      Snooze 7 days
+                    </button>
+                  </div>
+
+                  {daysSinceResolved >= 3 && (
+                    <p className="text-[10px] text-amber-600 mt-3 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      This complaint has been open for {daysSinceResolved} days since resolution.
+                      {!expanded && " Please confirm or snooze to dismiss this reminder."}
+                    </p>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ========== ETA Progress (non-resolved) ========== */}
+              {!isResolved && complaint.estimated_days && (
                 <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-amber-500/5 to-orange-500/5 border border-amber-500/10">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -161,9 +249,6 @@ function ComplaintCard({
                       <span>Expected by {new Date(complaint.estimated_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
                     )}
                   </div>
-                  {complaint.eta_reasoning && (
-                    <p className="text-[10px] text-muted-foreground mt-2 italic">{complaint.eta_reasoning}</p>
-                  )}
                 </div>
               )}
 
@@ -192,7 +277,7 @@ function ComplaintCard({
                     <Bell className="w-3 h-3" />
                     Status Updates
                   </h4>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                     {complaint.notifications.map((n) => (
                       <div
                         key={n.id}
@@ -202,64 +287,43 @@ function ComplaintCard({
                       >
                         {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1" />}
                         <span className="flex-1">{n.message}</span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {formatDateTime(n.timestamp)}
-                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(n.timestamp)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Action buttons */}
-              <div className="mt-4 flex items-center gap-2 flex-wrap">
-                {/* Simulate resolution (for demo) */}
-                {complaint.status === "in_progress" && (
+              {/* Demo: Simulate resolution */}
+              {complaint.status === "in_progress" && (
+                <div className="mt-4">
                   <button
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      onSimResolve(complaint.id);
-                    }}
+                    onClick={(ev) => { ev.stopPropagation(); markResolved(complaint.id); onAction(); }}
                     className="flex items-center gap-1.5 text-xs font-medium text-green-600 hover:text-green-700 transition-colors px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20"
                   >
                     <CheckCircle className="w-3 h-3" />
                     Mark as Resolved (Demo)
                   </button>
-                )}
-
-                {/* Confirm resolution */}
-                {complaint.status === "resolved" && (
-                  <button
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      onConfirm(complaint.id);
-                    }}
-                    className="flex items-center gap-1.5 text-xs font-medium text-green-700 hover:text-green-800 transition-colors px-4 py-2 rounded-lg bg-green-500/15 border border-green-500/30 shadow-sm"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    ✓ Yes, the issue is fixed — Close complaint
-                  </button>
-                )}
-
-                {complaint.status === "confirmed_closed" && (
-                  <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
-                    <CheckCircle className="w-4 h-4" />
-                    Confirmed closed {complaint.confirmed_at ? `on ${formatDateTime(complaint.confirmed_at)}` : ""}
-                  </span>
-                )}
-
-                <div className="ml-auto">
-                  <button
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      onDelete(complaint.id);
-                    }}
-                    className="flex items-center gap-1 text-xs text-red-500/60 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/5"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Remove
-                  </button>
                 </div>
+              )}
+
+              {/* Close confirmed */}
+              {isClosed && complaint.confirmed_at && (
+                <div className="mt-4 text-xs text-green-600 flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4" />
+                  Confirmed closed on {formatDateTime(complaint.confirmed_at)}
+                </div>
+              )}
+
+              {/* Remove */}
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={(ev) => { ev.stopPropagation(); removeComplaint(complaint.id); onAction(); }}
+                  className="flex items-center gap-1 text-xs text-red-500/60 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/5"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Remove
+                </button>
               </div>
             </div>
           </motion.div>
@@ -269,30 +333,34 @@ function ComplaintCard({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
+
 export default function MyComplaints() {
   const [activeComplaints, setActiveComplaints] = useState<FiledComplaint[]>([]);
   const [closedComplaints, setClosedComplaints] = useState<FiledComplaint[]>([]);
   const [showClosed, setShowClosed] = useState(false);
   const hasGemini = !!getGeminiKey();
 
-  const reload = () => {
+  const reload = useCallback(() => {
     setActiveComplaints(getActiveComplaints());
     setClosedComplaints(getClosedComplaints());
-  };
+  }, []);
 
   useEffect(() => {
     reload();
-    // Poll for status changes every 5 seconds
-    const interval = setInterval(reload, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    // Send reminders every 30s (checks if enough time has passed)
+    const reminderInterval = setInterval(() => { sendReminders(); reload(); }, 30000);
+    // Poll for status changes every 5s
+    const pollInterval = setInterval(reload, 5000);
+    return () => { clearInterval(reminderInterval); clearInterval(pollInterval); };
+  }, [reload]);
 
-  const totalUnread = activeComplaints.reduce(
-    (sum, c) => sum + (c.notifications || []).filter((n) => !n.read).length,
-    0
-  );
-
-  const resolvedAwaiting = activeComplaints.filter((c) => c.status === "resolved").length;
+  // Categorize active complaints
+  const resolvedAwaiting = activeComplaints.filter((c) => c.status === "resolved");
+  const inProgress = activeComplaints.filter((c) => c.status !== "resolved");
+  const totalUnread = activeComplaints.reduce((sum, c) => sum + (c.notifications || []).filter((n) => !n.read).length, 0);
 
   return (
     <div className="min-h-screen">
@@ -322,7 +390,7 @@ export default function MyComplaints() {
           <div>
             <h1 className="text-3xl font-bold text-foreground mb-2">My Complaints</h1>
             <p className="text-muted-foreground">
-              Track your filed complaints, view resolution timelines, and confirm fixes.
+              Track resolution timelines and confirm when issues are fixed.
             </p>
           </div>
           <Link
@@ -333,28 +401,51 @@ export default function MyComplaints() {
           </Link>
         </motion.div>
 
-        {/* Notification Banner */}
-        {resolvedAwaiting > 0 && (
+        {/* ===== Resolution Confirmation Banner ===== */}
+        {resolvedAwaiting.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center gap-3"
+            className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-green-500/10 to-emerald-500/10 border-2 border-green-500/20"
           >
-            <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center shrink-0">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-green-700">
-                {resolvedAwaiting} complaint{resolvedAwaiting > 1 ? "s" : ""} resolved — awaiting your confirmation
-              </p>
-              <p className="text-xs text-green-600/70">
-                Please check if the issue is fixed and confirm to close the complaint.
-              </p>
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-green-500/20 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-green-700 mb-0.5">
+                  {resolvedAwaiting.length} complaint{resolvedAwaiting.length > 1 ? "s" : ""} resolved — confirmation needed
+                </p>
+                <p className="text-xs text-green-600/70 leading-relaxed">
+                  Your complaints have been marked as fixed. Please check if the issue
+                  is actually resolved and confirm below — or snooze to be reminded later.
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs">
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-green-600">{resolvedAwaiting.length}</div>
+                    <div className="text-green-600/60">awaiting</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-gray-400">{closedComplaints.length}</div>
+                    <div className="text-gray-400">closed</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-amber-600">
+                      {resolvedAwaiting.reduce((sum, c) => {
+                        const days = c.resolved_at ? Math.floor((Date.now() - new Date(c.resolved_at).getTime()) / 86400000) : 0;
+                        return sum + days;
+                      }, 0)}
+                    </div>
+                    <div className="text-amber-600/60">total days open</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}
 
-        {totalUnread > 0 && resolvedAwaiting === 0 && (
+        {/* Notification banner */}
+        {totalUnread > 0 && resolvedAwaiting.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -362,7 +453,7 @@ export default function MyComplaints() {
           >
             <Bell className="w-5 h-5 text-blue-600 shrink-0" />
             <p className="text-sm text-blue-700">
-              You have <strong>{totalUnread}</strong> new notification{totalUnread > 1 ? "s" : ""}
+              <strong>{totalUnread}</strong> new notification{totalUnread > 1 ? "s" : ""}
             </p>
           </motion.div>
         )}
@@ -372,9 +463,9 @@ export default function MyComplaints() {
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/10 to-cyan-500/10 flex items-center justify-center mx-auto mb-6">
               <FileText className="w-8 h-8 text-blue-500/50" />
             </div>
-            <h2 className="text-xl font-bold text-foreground mb-2">No complaints filed yet</h2>
+            <h2 className="text-xl font-bold text-foreground mb-2">No complaints yet</h2>
             <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-              File your first complaint and track its resolution timeline with AI-powered analysis.
+              File your first complaint and track its resolution with AI-powered analysis.
             </p>
             <Link
               to="/file-complaint"
@@ -392,48 +483,73 @@ export default function MyComplaints() {
               animate={{ opacity: 1, y: 0 }}
               className="glass rounded-xl p-4 flex flex-wrap items-center gap-4 text-xs text-muted-foreground"
             >
-              <span>
-                <strong className="text-foreground">{activeComplaints.length}</strong> active
-              </span>
-              <span className="w-px h-3 bg-border" />
-              <span>
-                <strong className="text-green-600">{resolvedAwaiting}</strong> awaiting confirmation
-              </span>
+              <span><strong className="text-foreground">{inProgress.length}</strong> active</span>
+              {resolvedAwaiting.length > 0 && (
+                <>
+                  <span className="w-px h-3 bg-border" />
+                  <span className="text-green-600 font-medium">
+                    <strong>{resolvedAwaiting.length}</strong> awaiting your confirmation
+                  </span>
+                </>
+              )}
               {closedComplaints.length > 0 && (
                 <>
                   <span className="w-px h-3 bg-border" />
-                  <button
-                    onClick={() => setShowClosed(!showClosed)}
-                    className="text-blue-600 hover:text-blue-700 font-medium"
-                  >
+                  <button onClick={() => setShowClosed(!showClosed)} className="text-blue-600 hover:text-blue-700 font-medium">
                     {showClosed ? "Hide" : "Show"} {closedComplaints.length} closed
                   </button>
                 </>
               )}
             </motion.div>
 
-            {/* Active complaints */}
-            {activeComplaints.map((c, i) => (
-              <motion.div
-                key={c.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-              >
-                <ComplaintCard
-                  complaint={c}
-                  onDelete={(id) => { removeComplaint(id); reload(); }}
-                  onConfirm={(id) => { confirmResolution(id); reload(); }}
-                  onSimResolve={(id) => { markResolved(id); reload(); }}
-                />
-              </motion.div>
-            ))}
+            {/* Resolved awaiting confirmation — shown FIRST with prominence */}
+            {resolvedAwaiting.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3" />
+                  Awaiting Your Confirmation ({resolvedAwaiting.length})
+                </h3>
+                {resolvedAwaiting.map((c, i) => (
+                  <motion.div
+                    key={c.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    className="mb-3"
+                  >
+                    <ComplaintCard complaint={c} onAction={reload} />
+                  </motion.div>
+                ))}
+              </div>
+            )}
 
-            {/* Closed complaints */}
+            {/* Active (in-progress) complaints */}
+            {inProgress.length > 0 && (
+              <div>
+                {resolvedAwaiting.length > 0 && (
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-4">
+                    Active ({inProgress.length})
+                  </h3>
+                )}
+                {inProgress.map((c, i) => (
+                  <motion.div
+                    key={c.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="mb-3"
+                  >
+                    <ComplaintCard complaint={c} onAction={reload} />
+                  </motion.div>
+                ))}
+              </div>
+            )}
+
+            {/* Closed */}
             {showClosed && closedComplaints.length > 0 && (
               <div className="mt-6">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Closed Complaints
+                  Closed ({closedComplaints.length})
                 </h3>
                 {closedComplaints.map((c, i) => (
                   <motion.div
@@ -443,12 +559,7 @@ export default function MyComplaints() {
                     transition={{ delay: i * 0.03 }}
                     className="mb-3"
                   >
-                    <ComplaintCard
-                      complaint={c}
-                      onDelete={(id) => { removeComplaint(id); reload(); }}
-                      onConfirm={() => {}}
-                      onSimResolve={() => {}}
-                    />
+                    <ComplaintCard complaint={c} onAction={reload} />
                   </motion.div>
                 ))}
               </div>
