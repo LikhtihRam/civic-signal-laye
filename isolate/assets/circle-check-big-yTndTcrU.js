@@ -1,0 +1,1 @@
+import{c}from"./index-B7MNqaqD.js";const e=[["path",{d:"m12 19-7-7 7-7",key:"1l729n"}],["path",{d:"M19 12H5",key:"x3x0zl"}]],r=c("arrow-left",e);const o=[["path",{d:"M21.801 10A10 10 0 1 1 17 3.335",key:"yps3ct"}],["path",{d:"m9 11 3 3L22 4",key:"1pflzl"}]],a=c("circle-check-big",o);export{r as A,a as C};
