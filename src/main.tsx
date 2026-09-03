@@ -11,6 +11,8 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Clusters = lazy(() => import("./pages/Clusters.tsx"));
 const ClusterDetail = lazy(() => import("./pages/ClusterDetail.tsx"));
+const FileComplaint = lazy(() => import("./pages/FileComplaint.tsx"));
+const MyComplaints = lazy(() => import("./pages/MyComplaints.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteLoading() {
@@ -69,6 +71,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/clusters" element={<Clusters />} />
             <Route path="/clusters/:id" element={<ClusterDetail />} />
+            <Route path="/file-complaint" element={<FileComplaint />} />
+            <Route path="/my-complaints" element={<MyComplaints />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

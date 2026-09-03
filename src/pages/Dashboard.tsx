@@ -107,14 +107,28 @@ export default function Dashboard() {
               >
                 Clusters
               </Link>
+              <Link
+                to="/file-complaint"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/50 transition-all"
+              >
+                File Complaint
+              </Link>
             </nav>
           </div>
-          <Link
-            to="/clusters"
-            className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-          >
-            View All Clusters <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/file-complaint"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              + File Complaint
+            </Link>
+            <Link
+              to="/clusters"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              View All Clusters <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </header>
 

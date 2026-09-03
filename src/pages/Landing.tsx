@@ -65,12 +65,20 @@ export default function Landing() {
               CivicSentinel
             </span>
           </div>
-          <Link
-            to="/dashboard"
-            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-foreground hover:bg-white/70 transition-all duration-200"
-          >
-            Open Dashboard →
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/file-complaint"
+              className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-foreground hover:bg-white/70 transition-all duration-200"
+            >
+              File Complaint
+            </Link>
+            <Link
+              to="/dashboard"
+              className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all duration-200"
+            >
+              Open Dashboard →
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -108,12 +116,18 @@ export default function Landing() {
 
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                to="/dashboard"
+                to="/file-complaint"
                 className="group inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-500 px-8 py-4 text-white font-semibold text-base shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 hover:-translate-y-0.5"
               >
                 <AlertTriangle className="w-5 h-5" />
-                View Hotspot Dashboard
+                File a Complaint
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </Link>
+              <Link
+                to="/dashboard"
+                className="glass rounded-2xl px-8 py-4 text-foreground font-semibold text-base hover:bg-white/70 transition-all duration-200"
+              >
+                View Hotspot Dashboard
               </Link>
               <Link
                 to="/clusters"
