@@ -142,8 +142,9 @@ def main():
     print("  stats.json")
 
     # Clusters list
+    clusters_data = export_clusters_list()
     with open(OUTPUT_DIR / "clusters.json", "w") as f:
-        json.dump(export_clusters_list(), f)
+        json.dump(clusters_data, f)
     print("  clusters.json")
 
     # Map data
@@ -156,16 +157,24 @@ def main():
         json.dump(export_wards(), f)
     print("  wards.json")
 
+    # Clean stale cluster files
+    current_ids = {c["id"] for c in clusters_data["clusters"]}
+    for old_file in OUTPUT_DIR.glob("cluster-*.json"):
+        cid = old_file.stem.replace("cluster-", "")
+        if cid not in current_ids:
+            old_file.unlink()
+            print(f"  cleaned stale: {old_file.name}")
+
     # Individual cluster details
-    clusters_data = export_clusters_list()
     for cluster in clusters_data["clusters"]:
         detail = export_cluster_detail(cluster["id"])
         if detail:
+            n = len(detail.get("member_complaints", []))
             with open(OUTPUT_DIR / f"cluster-{cluster['id']}.json", "w") as f:
                 json.dump(detail, f)
-            print(f"  cluster-{cluster['id']}.json ({detail.get('member_count', 0)} complaints)")
+            print(f"  cluster-{cluster['id']}.json ({n} complaints)")
 
-    print(f"\nExported {len(clusters_data['clusters'])} cluster details + shared data")
+    print(f"\nExported {len(clusters_data['clusters'])} clusters + shared data")
 
 
 if __name__ == "__main__":
