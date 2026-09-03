@@ -11,7 +11,7 @@ CivicSentinel sits on top of existing citizen grievance systems and converts fra
 │  React Dashboard (Vite + Tailwind + Leaflet + Glass)    │
 │  Map View · Cluster List · Cluster Detail · Feedback    │
 └────────────────────────┬────────────────────────────────┘
-                         │ REST API
+                         │ GEMINI API 
 ┌────────────────────────┴────────────────────────────────┐
 │  FastAPI Backend (Python)                               │
 │                                                         │
